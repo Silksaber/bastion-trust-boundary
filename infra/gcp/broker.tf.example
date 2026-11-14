@@ -1,0 +1,26 @@
+# Platform operator only: one delegate per Bastion organization. Apply this in a
+# separate Terraform root/state, never alongside the customer's observe.tf.
+variable "broker_project_id" { type = string }
+variable "delegate_account_id" {
+  type        = string
+  description = "The part before @ of delegate_email returned by the organization's /gcp/policy."
+}
+variable "platform_service_account_email" { type = string }
+
+resource "google_project_service" "credentials" {
+  project            = var.broker_project_id
+  service            = "iamcredentials.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_service_account" "tenant_delegate" {
+  project      = var.broker_project_id
+  account_id   = var.delegate_account_id
+  display_name = "Bastion tenant delegate"
+}
+
+resource "google_service_account_iam_member" "platform" {
+  service_account_id = google_service_account.tenant_delegate.name
+  role              = "roles/iam.serviceAccountTokenCreator"
+  member            = "serviceAccount:${var.platform_service_account_email}"
+}

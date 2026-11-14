@@ -1,0 +1,129 @@
+# Launch-stack template for the observe role.
+#
+# Restates infra/aws/observe-policy.json's actions in CloudFormation's own syntax —
+# neither format can literally import the other at author time, so
+# cloud_tests/test_policy_document.py asserts the two name an identical action set.
+# If you edit one, edit both, and let the test catch a slip.
+#
+# Long-form intrinsics (`Ref:` / `Fn::GetAtt:`) rather than the `!Ref` / `!GetAtt`
+# short forms — both are valid CloudFormation, but the short forms are custom YAML
+# tags that `yaml.safe_load` cannot parse, and the test above needs to load this file
+# with nothing more than the standard library's YAML support.
+#
+# BastionPrincipalArn and BastionExternalId are filled in by the Connections page
+# before the customer clicks "Launch Stack" — the external ID is generated per
+# organization (bastion_api.services.cloud_connection.derive_external_id) and is what
+# stops the confused-deputy attack a bare cross-account trust would allow.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Bastion Security observe role. Grants read-only access to the services listed in
+  observe-policy.json. Holds no action that writes, creates, deletes, or modifies
+  anything in this account.
+
+Parameters:
+  BastionPrincipalArn:
+    Type: String
+    Description: >-
+      The Bastion platform's own AWS principal, shown on the Connections page
+      immediately above this template. Not a secret — an ARN alone grants nothing
+      without the matching external ID below.
+  BastionExternalId:
+    Type: String
+    Description: >-
+      The per-organization external ID shown on the Connections page. Required by
+      the trust policy below; without it, this role could be assumed by anyone who
+      merely learns its ARN.
+  RoleName:
+    Type: String
+    Default: BastionObserveRole
+    Description: The name this role will have in your account.
+
+Resources:
+  BastionObserveRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Ref: RoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BastionObserveTrust
+            Effect: Allow
+            Principal:
+              AWS:
+                Ref: BastionPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId:
+                  Ref: BastionExternalId
+      Policies:
+        - PolicyName: BastionObserveReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BastionObserveReadOnly
+                Effect: Allow
+                Action:
+                  - iam:ListUsers
+                  - iam:ListRoles
+                  - iam:ListPolicies
+                  - iam:GetAccountSummary
+                  - iam:ListAccessKeys
+                  - iam:GetAccessKeyLastUsed
+                  - iam:ListAttachedUserPolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListMFADevices
+                  - iam:GenerateCredentialReport
+                  - iam:GetCredentialReport
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetAccountPublicAccessBlock
+                  - s3:GetBucketLocation
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetBucketVersioning
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeRegions
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBSnapshots
+                  - rds:ListTagsForResource
+                  - lambda:ListFunctions
+                  - lambda:GetFunction
+                  - lambda:GetPolicy
+                  - kms:ListKeys
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:ListAliases
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - cloudfront:ListDistributions
+                  - route53:ListHostedZones
+                  - route53:ListResourceRecordSets
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - iam:ListRolePolicies
+                  - iam:GetRolePolicy
+                  - iam:ListInstanceProfiles
+                  - ce:GetCostAndUsage
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Description: Paste this back into the Connections page.
+    Value:
+      Fn::GetAtt: [BastionObserveRole, Arn]

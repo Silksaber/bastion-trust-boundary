@@ -1,0 +1,21 @@
+# Test configuration for the published files. Public-only: the product's own
+# configuration covers many packages that are not in this repository.
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Each test root is a package with its own name, so `importlib` mode is required.
+addopts = "--import-mode=importlib"
+consider_namespace_packages = true
+testpaths = [
+    "apps/worker/worker_tests",
+    "packages/cloud/cloud_tests",
+]
+pythonpath = [
+    "apps/worker/src",
+    "packages/cloud/src",
+    "packages/scanners/src",
+]
+markers = [
+    "sandbox: adversarial sandbox-escape tests; needs a container runtime",
+]

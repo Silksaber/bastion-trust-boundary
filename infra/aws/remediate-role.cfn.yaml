@@ -1,0 +1,93 @@
+# Launch-stack template for the **remediate** role.
+#
+# This is the second grant, and it is a separate role, a separate stack, and a separate
+# revocation from the observe role. A customer can hold observe alone for as long as
+# they like; nothing here is required to get findings, and deleting this stack stops
+# every change without stopping any observation.
+#
+# **Read the Action list below.** Six actions, and every one of them closes, revokes,
+# deletes, detaches, or encrypts something. There is no action here that grants access,
+# widens a policy, opens a port, or creates an identity — that is the invariant the
+# whole design rests on (ADR-015), it is checked in our CI by
+# scripts/check_remediate_policy.py on every commit, and the practical consequence is
+# that the worst thing a total compromise of the Bastion platform could do to this
+# account is make it *more* restrictive.
+#
+# What that costs, stated plainly rather than hidden: some fixes cannot be undone by
+# us, because undoing "closed" is "opened". Where that is true, the exact rollback
+# command is recorded and shown, and the change never runs without a person accepting
+# it.
+#
+# Restates infra/aws/remediate-policy.json's actions in CloudFormation's own syntax;
+# cloud_tests/test_remediate_policy.py asserts the two name an identical action set.
+# Long-form intrinsics (`Ref:` / `Fn::GetAtt:`) for the same reason the observe
+# template uses them: the test loads this file with `yaml.safe_load`, which cannot
+# parse `!Ref`.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Bastion Security remediate role. Grants exactly six restrictive actions across S3,
+  EC2 and IAM. Holds no action that grants access, widens a policy, opens a port, or
+  creates an identity.
+
+Parameters:
+  BastionPrincipalArn:
+    Type: String
+    Description: >-
+      The Bastion platform's own AWS principal, shown on the Connections page
+      immediately above this template. Not a secret — an ARN alone grants nothing
+      without the matching external ID below.
+  BastionExternalId:
+    Type: String
+    Description: >-
+      The per-organization external ID shown on the Connections page. This is a
+      *different* value from the observe role's: two grants sharing one external ID
+      would be one grant with two names, and revoking observe would leave a working
+      credential for a role that can change things.
+  RoleName:
+    Type: String
+    Default: BastionRemediateRole
+    Description: The name this role will have in your account.
+
+Resources:
+  BastionRemediateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Ref: RoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BastionRemediateTrust
+            Effect: Allow
+            Principal:
+              AWS:
+                Ref: BastionPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId:
+                  Ref: BastionExternalId
+      Policies:
+        - PolicyName: BastionRemediateTightenOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BastionRemediateTightenOnly
+                Effect: Allow
+                Action:
+                  # S3 — close a bucket, and encrypt what is written to it.
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketEncryption
+                  - s3:DeleteBucketEncryption
+                  # EC2 — close a security-group rule open to the entire internet.
+                  - ec2:RevokeSecurityGroupIngress
+                  # IAM — delete a stale access key, detach an over-broad policy.
+                  - iam:DeleteAccessKey
+                  - iam:DetachUserPolicy
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Description: Paste this back into the Connections page.
+    Value:
+      Fn::GetAtt: [BastionRemediateRole, Arn]

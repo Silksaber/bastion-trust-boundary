@@ -1,0 +1,61 @@
+# The same guards the product's own CI runs on every commit, run here against the
+# published copies.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  permissions:
+    name: Permission guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # No install step: each check reads a document and uses the standard library.
+      - name: The remediate role holds nothing that grants, widens, opens or creates
+        run: python scripts/check_remediate_policy.py
+      - name: The observe role holds nothing that writes
+        run: python scripts/check_cloud_observe_permissions.py
+      - name: The GitHub App holds nothing that administers
+        run: python scripts/check_github_permissions.py
+
+  documents:
+    name: Policy documents agree across formats
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-test.txt
+      - run: pytest -q packages/cloud/cloud_tests
+
+  sandbox:
+    name: Sandbox isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-test.txt
+      - name: The isolation profile is what the documents say
+        run: pytest -q apps/worker/worker_tests/test_sandbox_profile.py
+      - name: A container runtime is present
+        # Without one the escape suite skips, and a skipped suite proves nothing.
+        run: docker info --format '{{.ServerVersion}}'
+      - name: Adversarial escape suite
+        run: pytest -q -m sandbox -rs
+      - name: No sandbox container survived
+        run: |
+          leftovers=$(docker ps -a --filter label=bastion.sandbox=1 --format '{{.Names}}')
+          test -z "$leftovers" || (echo "containers survived: $leftovers" && exit 1)

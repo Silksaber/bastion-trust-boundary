@@ -1,0 +1,13 @@
+Bastion trust boundary
+Copyright 2026 Silksaber
+
+This product includes software developed at Silksaber.
+
+"Bastion by Silksaber" and the Silksaber name are trademarks of their owner. The
+Apache License 2.0 does not grant permission to use them, except as required to
+describe the origin of this work.
+
+infra/sandbox/Dockerfile downloads third-party tools and data when an image is built
+from it. None of them is distributed in this repository. Each is governed by its own
+licence, and anyone who builds or distributes an image is responsible for meeting
+those terms.

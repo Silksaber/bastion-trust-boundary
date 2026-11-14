@@ -1,0 +1,219 @@
+# One stack, both roles — the template behind the single "Connect AWS" button.
+#
+# The two roles this creates are *exactly* the two that `observe-role.cfn.yaml` and
+# `remediate-role.cfn.yaml` create on their own, with the same action sets, the same
+# trust conditions, and two different external IDs. Nothing is merged: they remain two
+# IAM roles, so the tighten-only invariant (ADR-015) still holds against a role that
+# holds no read permission, and revoking one still leaves the other working.
+#
+# What is merged is the *asking* (ADR-048). A customer used to grant read, come back,
+# and grant write in a second flow that looked identical to the first. The split cost a
+# round trip and taught nothing the documents below do not say better, so both
+# documents are shown at once and both roles are created at once.
+#
+# Long-form intrinsics (`Ref:` / `Fn::GetAtt:`) rather than `!Ref` / `!GetAtt`, for the
+# same reason the two single-role templates use them: cloud_tests loads this file with
+# `yaml.safe_load`, which cannot parse CloudFormation's custom tags. Those tests assert
+# both action lists here are identical to `bastion_cloud.policy.ACTIONS` and
+# `bastion_cloud.remediate.policy.ACTIONS`; if you edit one, edit both and let the test
+# catch the slip.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Bastion Security. Creates two roles: an observe role that can only read, and a
+  remediate role that can only tighten. Neither holds an action that grants access,
+  widens a policy, opens a port, or creates an identity.
+
+Parameters:
+  BastionPrincipalArn:
+    Type: String
+    Description: >-
+      The Bastion platform's own AWS principal, shown on the Connections page
+      immediately above this template. Not a secret — an ARN alone grants nothing
+      without the matching external IDs below.
+    # A blank or mistyped value is refused here, before any role exists. Without
+    # this, CloudFormation starts creating both roles and IAM fails them halfway
+    # through with "Invalid principal in policy".
+    AllowedPattern: "arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/[A-Za-z0-9+=,.@_/-]+"
+    ConstraintDescription: >-
+      must be the Bastion principal ARN shown on the Connections page, for example
+      arn:aws:iam::123456789012:role/bastion-platform.
+  BastionObserveExternalId:
+    Type: String
+    Description: >-
+      The per-organization external ID for the read role. Required by its trust
+      policy; without it, the role could be assumed by anyone who merely learns its
+      ARN.
+    # STS's own external-ID character set and length limits.
+    AllowedPattern: "[A-Za-z0-9+=,.@:/_-]{2,1224}"
+    ConstraintDescription: >-
+      must be the read role's external ID shown on the Connections page.
+  BastionRemediateExternalId:
+    Type: String
+    Description: >-
+      The per-organization external ID for the role that can change things. A
+      *different* value from the observe role's on purpose: two grants sharing one
+      external ID would be one grant with two names, and revoking observation would
+      leave a working credential for a role that can write.
+    AllowedPattern: "[A-Za-z0-9+=,.@:/_-]{2,1224}"
+    ConstraintDescription: >-
+      must be the tighten-only role's external ID shown on the Connections page.
+  ObserveRoleName:
+    Type: String
+    Default: BastionObserveRole
+    Description: >-
+      The name the read role will have in your account. Leave the default unless you
+      have a naming convention — the Connections page derives the role ARN from your
+      account ID and these names, which is what lets connecting be one press.
+  RemediateRoleName:
+    Type: String
+    Default: BastionRemediateRole
+    Description: The name the tighten-only role will have in your account.
+
+Resources:
+  # -- Read. Every action is a Get, a List, or a Describe. -------------------
+  BastionObserveRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Ref: ObserveRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BastionObserveTrust
+            Effect: Allow
+            Principal:
+              AWS:
+                Ref: BastionPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId:
+                  Ref: BastionObserveExternalId
+      Policies:
+        - PolicyName: BastionObserveReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BastionObserveReadOnly
+                Effect: Allow
+                Action:
+                  - iam:ListUsers
+                  - iam:ListRoles
+                  - iam:ListPolicies
+                  - iam:GetAccountSummary
+                  - iam:ListAccessKeys
+                  - iam:GetAccessKeyLastUsed
+                  - iam:ListAttachedUserPolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListMFADevices
+                  - iam:GenerateCredentialReport
+                  - iam:GetCredentialReport
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetAccountPublicAccessBlock
+                  - s3:GetBucketLocation
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetBucketVersioning
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeRegions
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBSnapshots
+                  - rds:ListTagsForResource
+                  - lambda:ListFunctions
+                  - lambda:GetFunction
+                  - lambda:GetPolicy
+                  - kms:ListKeys
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:ListAliases
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - cloudfront:ListDistributions
+                  - route53:ListHostedZones
+                  - route53:ListResourceRecordSets
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - iam:ListRolePolicies
+                  - iam:GetRolePolicy
+                  - iam:ListInstanceProfiles
+                  - ce:GetCostAndUsage
+                Resource: "*"
+
+  # -- Change. Six actions, and every one of them closes something. ----------
+  #
+  # Read the list. There is no action here that grants access, widens a policy, opens
+  # a port, or creates an identity — checked in our CI on every commit by
+  # scripts/check_remediate_policy.py. The practical consequence is that the worst
+  # thing a total compromise of the Bastion platform could do to this account is make
+  # it *more* restrictive.
+  #
+  # What that costs, stated rather than hidden: some fixes cannot be undone by us,
+  # because undoing "closed" is "opened". Where that is true the exact rollback command
+  # is recorded and shown to you, and the change never runs without someone accepting it.
+  BastionRemediateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Ref: RemediateRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BastionRemediateTrust
+            Effect: Allow
+            Principal:
+              AWS:
+                Ref: BastionPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId:
+                  Ref: BastionRemediateExternalId
+      Policies:
+        - PolicyName: BastionRemediateTightenOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BastionRemediateTightenOnly
+                Effect: Allow
+                Action:
+                  # S3 — close a bucket, and encrypt what is written to it.
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketEncryption
+                  - s3:DeleteBucketEncryption
+                  # EC2 — close a security-group rule open to the entire internet.
+                  - ec2:RevokeSecurityGroupIngress
+                  # IAM — delete a stale access key, detach an over-broad policy.
+                  - iam:DeleteAccessKey
+                  - iam:DetachUserPolicy
+                Resource: "*"
+
+Outputs:
+  ObserveRoleArn:
+    Description: >-
+      The read role. The Connections page derives this from your account ID, so you
+      should not need to copy it — it is here for the manual path and for your records.
+    Value:
+      Fn::GetAtt: [BastionObserveRole, Arn]
+  RemediateRoleArn:
+    Description: The tighten-only role, derived the same way.
+    Value:
+      Fn::GetAtt: [BastionRemediateRole, Arn]
+  AwsAccountId:
+    Description: Paste this back into the Connections page. It is the only thing we need.
+    Value:
+      Ref: AWS::AccountId

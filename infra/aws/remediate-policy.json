@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BastionRemediateTightenOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketEncryption",
+        "s3:DeleteBucketEncryption",
+        "ec2:RevokeSecurityGroupIngress",
+        "iam:DeleteAccessKey",
+        "iam:DetachUserPolicy"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

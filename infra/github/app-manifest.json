@@ -1,0 +1,24 @@
+{
+  "name": "Bastion Security",
+  "url": "https://github.com/bastion-security",
+  "description": "Autonomous security engineer. Validates every finding by real exploitation and delivers remediations as merge-ready pull requests.",
+  "public": true,
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "write",
+    "pull_requests": "write",
+    "checks": "write"
+  },
+  "default_events": [
+    "push",
+    "pull_request"
+  ],
+  "hook_attributes": {
+    "url": "{API_BASE_URL}/webhooks/github",
+    "active": true
+  },
+  "setup_url": "{API_BASE_URL}/connections/github/callback",
+  "callback_urls": ["{API_BASE_URL}/connections/github/authorize"],
+  "request_oauth_on_install": false,
+  "setup_on_update": true
+}
